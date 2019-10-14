@@ -11,6 +11,7 @@
 #include <graphics.h>
 #include <macros.h>
 #include "lcd_model.h"
+#include <usb_serial.h>
 
 // Contant Vars
 #define STATUS_BAR_HEIGHT 8
@@ -18,6 +19,7 @@
 #define PLR_WIDTH 5
 #define PLR_HEIGHT 4
 #define MINSPEED 0.2
+
 
 // Jerry Bitmap
 uint8_t jerry_bitmap[PLR_HEIGHT][PLR_WIDTH] = {{1, 1, 0, 1, 1}, {1, 1, 0, 1, 1}, {1, 1, 1, 1, 1}, {0, 1, 1, 1, 0}};
@@ -27,11 +29,13 @@ uint8_t tom_bitmap[PLR_HEIGHT][PLR_WIDTH] = {{0, 1, 0, 1, 0}, {1, 1, 1, 1, 1}, {
 
 // Global Vars
 int current_level = 1;
+bool pause = false;
+bool game_over = false;
 
 struct player
 {
     int lives, score, fireworks;
-    double x, y, speed, direction;
+    double init_x, init_y, x, y, speed, direction;
 } tom, jerry;
 
 struct wall
@@ -95,6 +99,12 @@ void setup_vars(void)
         wall_4.y2 = 30;
     }
 
+    jerry.init_x = jerry.x;
+    jerry.init_y = jerry.y;
+
+    tom.init_x = tom.x;
+    tom.init_y = tom.y;
+
     for (int i = 0; i < NUM_SWITCHES; i++)
     {
         state_counts[i] = 0b00000000;
@@ -140,6 +150,12 @@ void setup(void)
     // Enable interupts
     sei();
 
+    // Enable USB Serial
+    usb_init();
+    while ( !usb_configured() ) {
+		// Block until USB is ready.
+	}
+
     // Set Initial Var Values
     setup_vars();
 
@@ -169,6 +185,8 @@ ISR(TIMER0_OVF_vect)
     }
 }
 
+//SETUP INTERUPT FOR GAME TIME TIMER
+
 void draw_gui(void)
 {
     char str_buffer[20];
@@ -182,16 +200,16 @@ void draw_gui(void)
     sprintf(str_buffer, "S:%d", jerry.score);
     draw_string(36, 0, str_buffer, FG_COLOUR);
 
-    // FIX TIME!!!!!!!!!!!!!!
+    // FIX TIME!!!!!!!!!!!!!! USING TIMER INTERUPT AT 1 SECOND
     //sprintf(str_buffer, "T:%d", "00:00");
     draw_string(55, 0, "00:00", FG_COLOUR);
 
     draw_line(0, STATUS_BAR_HEIGHT, LCD_X, STATUS_BAR_HEIGHT, FG_COLOUR);
 }
 
-void draw_players(void)
+void draw_jerry(void)
 {
-    // Draw Bitmaps
+    // Draw Bitmap
     for (int i = 0; i < PLR_WIDTH; i++)
     {
         for (int j = 0; j < PLR_HEIGHT; j++)
@@ -200,7 +218,17 @@ void draw_players(void)
             {
                 draw_pixel(jerry.x + i, jerry.y + j, FG_COLOUR);
             }
+        }
+    }
+}
 
+void draw_tom(void)
+{
+    // Draw Bitmap
+    for (int i = 0; i < PLR_WIDTH; i++)
+    {
+        for (int j = 0; j < PLR_HEIGHT; j++)
+        {
             if (tom_bitmap[j][i] == 1)
             {
                 draw_pixel(tom.x + i, tom.y + j, FG_COLOUR);
@@ -226,8 +254,8 @@ void draw_objs(void)
 void draw(void)
 {
     draw_gui();
-    draw_players();
-    draw_walls();
+    draw_tom();
+    draw_jerry();
     draw_objs();
 }
 
@@ -269,6 +297,23 @@ bool wall_collision(struct player plyr, int dx, int dy)
     return false;
 }
 
+bool tom_collision(void)
+{
+    // If one rectangle is on left side of other
+    if (jerry.x > tom.x + PLR_WIDTH || tom.x > jerry.x + PLR_WIDTH)
+    {
+        return false;
+    }
+
+    // If one rectangle is above other
+    if (jerry.y > tom.y + PLR_HEIGHT || tom.y > jerry.y + PLR_HEIGHT)
+    {
+        return false;
+    }
+
+    return true;
+}
+
 bool check_collision(struct player plyr, double dx, double dy, char obj)
 {
     bool collided = false;
@@ -300,24 +345,35 @@ bool check_collision(struct player plyr, double dx, double dy, char obj)
 
 void handle_player(void)
 {
-    // Down
-    if (switch_states[2] == 1 && jerry.y + PLR_HEIGHT + 1 < LCD_Y && !check_collision(jerry, 0, 1, 'W'))
+    if (tom_collision())
     {
-        jerry.y++;
+        jerry.x = jerry.init_x;
+        jerry.y = jerry.init_y;
+        jerry.lives--;
+        tom.x = tom.init_x;
+        tom.y = tom.init_y;
     }
-    // Left
-    else if (switch_states[3] == 1 && jerry.x - 1 > 0 && !check_collision(jerry, -1, 0, 'W'))
+    else
     {
-        jerry.x--;
-    }
-    // Up
-    else if (switch_states[4] == 1 && jerry.y - 1 > STATUS_BAR_HEIGHT && !check_collision(jerry, 0, -1, 'W'))
-    {
-        jerry.y--;
-    } // Right
-    else if (switch_states[5] == 1 && jerry.x + 1 + PLR_WIDTH < LCD_X && !check_collision(jerry, 1, 0, 'W'))
-    {
-        jerry.x++;
+        // Down
+        if (switch_states[2] == 1 && jerry.y + PLR_HEIGHT + 1 < LCD_Y && !check_collision(jerry, 0, 1, 'W'))
+        {
+            jerry.y++;
+        }
+        // Left
+        else if (switch_states[3] == 1 && jerry.x - 1 > 0 && !check_collision(jerry, -1, 0, 'W'))
+        {
+            jerry.x--;
+        }
+        // Up
+        else if (switch_states[4] == 1 && jerry.y - 1 > STATUS_BAR_HEIGHT && !check_collision(jerry, 0, -1, 'W'))
+        {
+            jerry.y--;
+        } // Right
+        else if (switch_states[5] == 1 && jerry.x + 1 + PLR_WIDTH < LCD_X && !check_collision(jerry, 1, 0, 'W'))
+        {
+            jerry.x++;
+        }
     }
 }
 
@@ -350,10 +406,13 @@ void update_enemy(void)
 void process(void)
 {
     clear_screen();
+    draw_walls();
+    update_enemy();
     draw();
     handle_player();
-    update_enemy();
     show_screen();
+
+    usb_serial_putchar('#');    
 
     srand(TCNT0);
 }
