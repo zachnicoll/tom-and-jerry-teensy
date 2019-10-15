@@ -16,28 +16,27 @@
 // Contant Vars
 #define STATUS_BAR_HEIGHT 8
 #define NUM_SWITCHES 7
-#define PLR_WIDTH 5
-#define PLR_HEIGHT 4
 #define OBJ_SIZE 5
 #define MINSPEED 0.2
 
 // Jerry Bitmap
-uint8_t jerry_bitmap[PLR_HEIGHT][PLR_WIDTH] = {{1, 1, 0, 1, 1}, {1, 1, 0, 1, 1}, {1, 1, 1, 1, 1}, {0, 1, 1, 1, 0}};
+uint8_t jerry_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1, 1, 0, 1, 1}, {1, 0, 0, 1, 1}, {1, 1, 1, 1, 1}};
 
 // Tom Bitmap
-uint8_t tom_bitmap[PLR_HEIGHT][PLR_WIDTH] = {{0, 1, 0, 1, 0}, {1, 1, 1, 1, 1}, {1, 0, 1, 0, 1}, {0, 1, 1, 1, 0}};
+uint8_t tom_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1, 1, 0, 1, 1}, {1, 1, 0, 1, 1}, {1, 1, 1, 1, 1}};
 
 // Cheese Bitmap
 uint8_t cheese_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1, 0, 1, 1, 1}, {1, 0, 0, 0, 1}, {1, 1, 1, 1, 1}};
 
 // Trap Bitmap
-uint8_t trap_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1, 1, 0, 1, 1}, {1, 1, 0, 1, 1}, {1, 1, 1, 1, 1}};
+uint8_t trap_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 1, 0, 1}, {1, 0, 1, 0, 1}, {1, 0, 1, 0, 1}, {1, 1, 1, 1, 1}};
 
 // Door Bitmap
 uint8_t door_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1, 0, 1, 0, 1}, {1, 0, 0, 0, 1}, {1, 1, 1, 1, 1}};
 
 // Global Vars
-int current_level = 1, cheese, cheese_collected, cheese_time, traps, trap_supply, trap_time;
+int current_level = 1, cheese, cheese_collected, cheese_time, traps, trap_supply, trap_time, placing_trap;
+double game_time, pause_start, pause_end, pause_time;
 int cheese_positions[5][2], trap_positions[5][2], door_position[2];
 bool pause = false;
 bool game_over = false;
@@ -61,7 +60,21 @@ volatile uint32_t cycle_count = 0;
 
 // Fucntion Declarations
 bool check_collision(struct player plyr, double dx, double dy, char obj);
-void elapsed_time();
+double elapsed_time();
+void paused();
+
+// FOR DEBUGGING
+void send_str(const char *s)
+{
+    char c;
+    while (1)
+    {
+        c = pgm_read_byte(s++);
+        if (!c)
+            break;
+        usb_serial_putchar(c);
+    }
+}
 
 void start_screen(void)
 {
@@ -134,9 +147,10 @@ void setup_vars(void)
         trap_positions[i][0] = -10;
         trap_positions[i][1] = -10;
     }
-
+    pause_time = 0;
     cheese_time = elapsed_time();
     trap_time = elapsed_time();
+    placing_trap = 0;
 }
 
 void setup(void)
@@ -228,7 +242,7 @@ ISR(TIMER1_OVF_vect)
     int16_t c = usb_serial_getchar();
 
     // Down
-    if (c == 's' && jerry.y + PLR_HEIGHT + 1 < LCD_Y && !check_collision(jerry, 0, 1, 'W'))
+    if (c == 's' && jerry.y + OBJ_SIZE + 1 < LCD_Y && !check_collision(jerry, 0, 1, 'W'))
     {
         jerry.y++;
     }
@@ -242,7 +256,7 @@ ISR(TIMER1_OVF_vect)
     {
         jerry.y--;
     } // Right
-    else if (c == 'd' && jerry.x + 1 + PLR_WIDTH < LCD_X && !check_collision(jerry, 1, 0, 'W'))
+    else if (c == 'd' && jerry.x + 1 + OBJ_SIZE < LCD_X && !check_collision(jerry, 1, 0, 'W'))
     {
         jerry.x++;
     }
@@ -274,8 +288,8 @@ void draw_gui(void)
     draw_string(36, 0, str_buffer, FG_COLOUR);
 
     // FIX TIME!!!!!!!!!!!!!! USING TIMER INTERUPT AT 1 SECOND
-    int i_minutes = floor(elapsed_time() / 60.0);
-    double fl_minutes = elapsed_time() / 60.0;
+    int i_minutes = floor(game_time / 60.0);
+    double fl_minutes = game_time / 60.0;
     double fraction = fl_minutes - floor(fl_minutes);
     int seconds = 60.0 * fraction;
     sprintf(str_buffer, "%02d:%02d", i_minutes, seconds);
@@ -287,9 +301,9 @@ void draw_gui(void)
 void draw_jerry(void)
 {
     // Draw Bitmap
-    for (int i = 0; i < PLR_WIDTH; i++)
+    for (int i = 0; i < OBJ_SIZE; i++)
     {
-        for (int j = 0; j < PLR_HEIGHT; j++)
+        for (int j = 0; j < OBJ_SIZE; j++)
         {
             if (jerry_bitmap[j][i] == 1)
             {
@@ -302,9 +316,9 @@ void draw_jerry(void)
 void draw_tom(void)
 {
     // Draw Bitmap
-    for (int i = 0; i < PLR_WIDTH; i++)
+    for (int i = 0; i < OBJ_SIZE; i++)
     {
-        for (int j = 0; j < PLR_HEIGHT; j++)
+        for (int j = 0; j < OBJ_SIZE; j++)
         {
             if (tom_bitmap[j][i] == 1)
             {
@@ -336,7 +350,7 @@ void draw_objs(void)
                 {
                     if (cheese_bitmap[j][k] == 1)
                     {
-                        draw_pixel(cheese_positions[i][0] + j, cheese_positions[i][1] + k, FG_COLOUR);
+                        draw_pixel(cheese_positions[i][0] + k, cheese_positions[i][1] + j, FG_COLOUR);
                     }
                 }
 
@@ -344,7 +358,7 @@ void draw_objs(void)
                 {
                     if (trap_bitmap[j][k] == 1)
                     {
-                        draw_pixel(trap_positions[i][0] + j, trap_positions[i][1] + k, FG_COLOUR);
+                        draw_pixel(trap_positions[i][0] + k, trap_positions[i][1] + j, FG_COLOUR);
                     }
                 }
             }
@@ -357,8 +371,6 @@ void draw(void)
     draw_gui();
     draw_jerry();
     draw_tom();
-
-    draw_objs();
 }
 
 bool is_pixel(int x, int y)
@@ -370,7 +382,8 @@ bool is_pixel(int x, int y)
     {
         return true;
     }
-    else{
+    else
+    {
         return false;
     }
 }
@@ -379,15 +392,12 @@ bool wall_collision(struct player plyr, int dx, int dy)
 {
     if (dx < 0 || dx > 0)
     {
-        for (int i = 0; i < PLR_HEIGHT; i++)
+        for (int i = 0; i < OBJ_SIZE; i++)
         {
-            int x = dx < 0 ? plyr.x + dx : plyr.x + PLR_WIDTH;
+            int x = dx < 0 ? plyr.x + dx : plyr.x + OBJ_SIZE;
             int y = plyr.y + i;
 
-            uint8_t bank = y >> 3;
-            uint8_t pixel = y & 7;
-
-            if (((screen_buffer[bank * LCD_X + (int)x] >> pixel) & 1) == 1)
+            if (is_pixel(x, y))
             {
                 return true;
             }
@@ -395,15 +405,12 @@ bool wall_collision(struct player plyr, int dx, int dy)
     }
     if (dy < 0 || dy > 0)
     {
-        for (int i = 0; i < PLR_WIDTH; i++)
+        for (int i = 0; i < OBJ_SIZE; i++)
         {
             int x = plyr.x + i;
-            int y = dy > 0 ? plyr.y + PLR_HEIGHT : plyr.y + dy;
+            int y = dy > 0 ? plyr.y + OBJ_SIZE : plyr.y + dy;
 
-            uint8_t bank = y >> 3;
-            uint8_t pixel = y & 7;
-
-            if (((screen_buffer[bank * LCD_X + (int)x] >> pixel) & 1) == 1)
+            if (is_pixel(x, y))
             {
                 return true;
             }
@@ -413,16 +420,16 @@ bool wall_collision(struct player plyr, int dx, int dy)
     return false;
 }
 
-bool tom_collision(int dx, int dy)
+bool box_collision(int dx, int dy, int x1, int y1, int x2, int y2, int offset)
 {
     // If one rectangle is on left side of other
-    if (jerry.x + dx > tom.x + PLR_WIDTH || tom.x > jerry.x + dx + PLR_WIDTH)
+    if (x1 + dx > x2 + OBJ_SIZE - offset || x2 > x1 + dx + OBJ_SIZE - offset)
     {
         return false;
     }
 
     // If one rectangle is above other
-    if (jerry.y + dy > tom.y + PLR_HEIGHT || tom.y > jerry.y + dy + PLR_HEIGHT)
+    if (y1 + dy > y2 + OBJ_SIZE - offset || y2 > y1 + dy + OBJ_SIZE - offset)
     {
         return false;
     }
@@ -465,6 +472,49 @@ void randomize_tom()
     tom.direction = ((double)rand() / (double)RAND_MAX) * M_PI * 2;
 }
 
+void check_tom_collision(int dx, int dy)
+{
+    if (!box_collision(dx, dy, jerry.x, jerry.y, tom.x, tom.y, 1))
+    {
+        if (jerry.x + dx + OBJ_SIZE < LCD_X && jerry.x + dx > 0 && jerry.y + dy + OBJ_SIZE < LCD_Y && jerry.y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy, 'W'))
+        {
+            jerry.x += dx;
+            jerry.y += dy;
+        }
+    }
+    else
+    {
+        jerry.x = jerry.init_x;
+        jerry.y = jerry.init_y;
+        jerry.lives--;
+        tom.x = tom.init_x;
+        tom.y = tom.init_y;
+        randomize_tom();
+    }
+}
+
+void check_cheese_trap_collision()
+{
+    for (int i = 0; i < 5; i++)
+    {
+        if (box_collision(0, 0, jerry.x, jerry.y, cheese_positions[i][0], cheese_positions[i][1], 1))
+        {
+            jerry.score++;
+            cheese--;
+            cheese_positions[i][0] = -10;
+            cheese_positions[i][1] = -10;
+        }
+
+        if (box_collision(0, 0, jerry.x, jerry.y, trap_positions[i][0], trap_positions[i][1], 1))
+        {
+            jerry.lives--;
+            traps--;
+            trap_positions[i][0] = -10;
+            trap_positions[i][1] = -10;
+        }
+    }
+}
+
 void handle_player(void)
 {
     int dx = 0;
@@ -490,27 +540,12 @@ void handle_player(void)
         dx = 1;
     }
 
-    if (!tom_collision(dx, dy))
-    {
-        if (jerry.x + dx + PLR_WIDTH < LCD_X && jerry.x + dx > 0 && jerry.y + dy + PLR_HEIGHT < LCD_Y && jerry.y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy, 'W'))
-        {
-            jerry.x += dx;
-            jerry.y += dy;
-        }
-    }
-    else
-    {
-        jerry.x = jerry.init_x;
-        jerry.y = jerry.init_y;
-        jerry.lives--;
-        tom.x = tom.init_x;
-        tom.y = tom.init_y;
-        randomize_tom();
-    }
+    check_tom_collision(dx, dy);
+    check_cheese_trap_collision();
 
-    if (switch_states[0] == 1 && pause_check == false)
+    if (switch_states[0] == 1 && pause_check == false && elapsed_time() > 2)
     {
-        pause = !pause;
+        paused();
         pause_check = true;
     }
     else if (switch_states[0] == 0 && pause_check == true)
@@ -526,7 +561,7 @@ void update_enemy(void)
     uint8_t xdir = dx < 0 ? 0 : 1;
     uint8_t ydir = dy < 0 ? 0 : 1;
 
-    if ((tom.x + dx + (PLR_WIDTH * xdir) > LCD_X) || (tom.x + dx < 0) || (tom.y + dy + (PLR_HEIGHT * ydir) > LCD_Y) || (tom.y + dy < STATUS_BAR_HEIGHT + 1) || check_collision(tom, dx, dy, 'W') || check_collision(tom, dx, 0, 'W') || check_collision(tom, 0, dy, 'W'))
+    if ((tom.x + dx + (OBJ_SIZE * xdir) > LCD_X) || (tom.x + dx < 0) || (tom.y + dy + (OBJ_SIZE * ydir) > LCD_Y) || (tom.y + dy < STATUS_BAR_HEIGHT + 1) || check_collision(tom, dx, dy, 'W') || check_collision(tom, dx, 0, 'W') || check_collision(tom, 0, dy, 'W'))
     {
         randomize_tom();
     }
@@ -544,6 +579,69 @@ void update_enemy(void)
     }
 }
 
+void place_cheese()
+{
+    int x, y;
+    int blocked = 1;
+
+    do
+    {
+        x = round(((double)rand() / (double)RAND_MAX) * (LCD_X - OBJ_SIZE));
+        y = round(((double)rand() / (double)RAND_MAX) * (LCD_Y - STATUS_BAR_HEIGHT - OBJ_SIZE)) + STATUS_BAR_HEIGHT + OBJ_SIZE;
+        blocked = 0;
+        for (int j = 0; j < OBJ_SIZE; j++)
+        {
+            for (int k = 0; k < OBJ_SIZE; k++)
+            {
+                if (is_pixel(x + j, y + k))
+                {
+                    blocked = 1;
+                    break;
+                }
+            }
+        }
+    } while (blocked == 1);
+
+    if (!blocked)
+    {
+        for (int i = 0; i < 5; i++)
+        {
+            if (cheese_positions[i][0] == -10)
+            {
+                cheese_positions[i][0] = x;
+                cheese_positions[i][1] = y;
+                cheese++;
+                break;
+            }
+        }
+    }
+
+    cheese_time = round(elapsed_time());
+}
+
+void place_trap()
+{
+    int blocked = 0;
+    for (int i = 0; i < 5; i++)
+    {
+        if (box_collision(0, 0, tom.x, tom.y, cheese_positions[i][0], cheese_positions[i][1], 0) || box_collision(0, 0, tom.x, tom.y, trap_positions[i][0], trap_positions[i][1], 0))
+        {
+            blocked = 1;
+            break;
+        }
+
+        if (blocked == 0 && trap_positions[i][0] == -10)
+        {
+            trap_positions[i][0] = round(tom.x);
+            trap_positions[i][1] = round(tom.y);
+            traps++;
+            placing_trap = 0;
+            break;
+        }
+    }
+    trap_time = round(elapsed_time());
+}
+
 void place_cheese_traps()
 {
     int current_time = round(elapsed_time());
@@ -557,8 +655,9 @@ void place_cheese_traps()
         cheese_time = round(elapsed_time());
     }
 
-    if (trap_supply > 0 && current_time - trap_time == 3 && !pause)
+    if (placing_trap || (traps < 5 && current_time - trap_time == 3 && !pause))
     {
+        placing_trap = 1;
         place_trap();
     }
     else if (traps == 5 || pause)
@@ -567,42 +666,38 @@ void place_cheese_traps()
     }
 }
 
-void place_cheese()
+void paused()
 {
-    int x, y;
-    x = round(((double)rand() / (double)RAND_MAX) * (LCD_X - 1));
-    y = round(((double)rand() / (double)RAND_MAX) * (LCD_Y - 4)) + 4;
-
-    if (!is_pixel(x,y)))
+    pause = !pause;
+    if (pause)
     {
-        for (int i = 0; i < 5; i++)
-        {
-            if (cheese_positions[i][0] == -1)
-            {
-                cheese_positions[i][0] = x;
-                cheese_positions[i][1] = y;
-                cheese++;
-                break;
-            }
-        }
+        pause_start = elapsed_time();
+        pause_end = 0;
     }
-}
-
-void place_trap()
-{
+    else
+    {
+        pause_end = elapsed_time();
+        pause_time += pause_end - pause_start;
+    }
 }
 
 void process(void)
 {
     clear_screen();
+
     draw_walls();
+
     if (!pause)
     {
+        game_time = elapsed_time() - pause_time;
         update_enemy();
     }
+
     draw();
     handle_player();
-    place_cheese();
+    draw_objs();
+    place_cheese_traps();
+
     show_screen();
     srand(TCNT0);
 }
