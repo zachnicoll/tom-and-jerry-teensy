@@ -48,6 +48,11 @@ struct player
     double init_x, init_y, x, y, speed, direction;
 } tom, jerry;
 
+struct firework
+{
+    double x, y;
+} fireworks[20];
+
 struct wall
 {
     int x1, y1, x2, y2;
@@ -62,6 +67,9 @@ volatile uint32_t cycle_count = 0;
 bool check_collision(struct player plyr, double dx, double dy, char obj);
 double elapsed_time();
 void paused();
+void setup();
+void setup_vars();
+void place_cheese_door(char c);
 
 // FOR DEBUGGING
 void send_str(const char *s)
@@ -93,6 +101,26 @@ void start_screen(void)
     }
 }
 
+void handle_gameover()
+{
+    int pressed = 0;
+    while (pressed == 0)
+    {
+        clear_screen();
+        if (BIT_IS_SET(PINF, 5))
+        {
+            pressed = 1;
+            game_over = false;
+            cycle_count = 0;
+            current_level = 1;
+            setup_vars();
+        }
+        draw_string(LCD_X / 2 - 28, LCD_Y / 3, "-GAME OVER-", FG_COLOUR);
+        draw_string(LCD_X / 2 - 33, LCD_Y / 3 + 10, "SW3 to Restart", FG_COLOUR);
+        show_screen();
+    }
+}
+
 void setup_vars(void)
 {
     if (current_level == 1)
@@ -101,6 +129,7 @@ void setup_vars(void)
         jerry.lives = 5;
         jerry.x = 0;
         jerry.y = STATUS_BAR_HEIGHT + 1;
+        jerry.fireworks = 0;
 
         tom.x = LCD_X - 5;
         tom.y = LCD_Y - 9;
@@ -147,10 +176,21 @@ void setup_vars(void)
         trap_positions[i][0] = -10;
         trap_positions[i][1] = -10;
     }
+    door_position[0] = -10;
+    door_position[1] = -10;
+
     pause_time = 0;
     cheese_time = elapsed_time();
+    cheese = 0;
     trap_time = elapsed_time();
+    traps = 0;
     placing_trap = 0;
+
+    for (int i = 0; i < 20; i++)
+    {
+        fireworks[i].x = -1;
+        fireworks[i].y = -1;
+    }
 }
 
 void setup(void)
@@ -361,7 +401,26 @@ void draw_objs(void)
                         draw_pixel(trap_positions[i][0] + k, trap_positions[i][1] + j, FG_COLOUR);
                     }
                 }
+
+                if (i == 0 && door_position[0] != -10)
+                {
+                    if (door_bitmap[j][k])
+                    {
+                        draw_pixel(door_position[0] + k, door_position[1] + j, FG_COLOUR);
+                    }
+                }
             }
+        }
+    }
+}
+
+void draw_fireworks()
+{
+    for (int i = 0; i < 20; i++)
+    {
+        if (fireworks[i].x != -1)
+        {
+            draw_pixel(fireworks[i].x, fireworks[i].y, FG_COLOUR);
         }
     }
 }
@@ -476,7 +535,7 @@ void check_tom_collision(int dx, int dy)
 {
     if (!box_collision(dx, dy, jerry.x, jerry.y, tom.x, tom.y, 1))
     {
-        if (jerry.x + dx + OBJ_SIZE < LCD_X && jerry.x + dx > 0 && jerry.y + dy + OBJ_SIZE < LCD_Y && jerry.y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy, 'W'))
+        if (jerry.x + dx + OBJ_SIZE < LCD_X && jerry.x + dx > -1 && jerry.y + dy + OBJ_SIZE < LCD_Y + 1 && jerry.y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy, 'W'))
         {
             jerry.x += dx;
             jerry.y += dy;
@@ -515,10 +574,81 @@ void check_cheese_trap_collision()
     }
 }
 
+void firework_homing(struct firework *frwrk)
+{
+    double t1 = tom.x - frwrk->x;
+    double t2 = tom.y - frwrk->y;
+    double d = sqrt(t1 * t1 + t2 * t2);
+
+    double dx = t1 * (1 / d);
+    double dy = t2 * (1 / d);
+
+    if (frwrk->x + dx < LCD_X && frwrk->x + dx > 1 && frwrk->y + dy < LCD_Y && frwrk->y + dy > 5)
+    {
+        if (!is_pixel(frwrk->x + dx, frwrk->y + dy))
+        {
+            frwrk->x += dx;
+            frwrk->y += dy;
+        }
+        else
+        {
+            frwrk->x = -1;
+            frwrk->y = -1;
+            jerry.fireworks++;
+        }
+    }
+    else
+    {
+        frwrk->x = -1;
+        frwrk->y = -1;
+        jerry.fireworks++;
+    }
+}
+
+void update_fireworks()
+{
+    for (int i = 0; i < 20; i++)
+    {
+        if (fireworks[i].x != -1)
+        {
+            if ((round(fireworks[i].x) >= round(tom.x) && round(fireworks[i].x) < round(tom.x + OBJ_SIZE)) && (round(fireworks[i].y) >= round(tom.y) && round(fireworks[i].y) < round(tom.y + OBJ_SIZE)))
+            {
+                tom.x = tom.init_x;
+                tom.y = tom.init_y;
+
+                fireworks[i].x = -1;
+                fireworks[i].y = -1;
+                jerry.fireworks++;
+            }
+            else if (!pause)
+            {
+
+                struct firework *ptr = &fireworks[i];
+                firework_homing(ptr);
+            }
+        }
+    }
+}
+
 void handle_player(void)
 {
     int dx = 0;
     int dy = 0;
+
+    if (jerry.lives == 0)
+    {
+        game_over = true;
+    }
+
+    if (jerry.score == 3 && jerry.fireworks == 0)
+    {
+        jerry.fireworks = 20;
+    }
+
+    if (jerry.score == 5 && door_position[0] == -10)
+    {
+        place_cheese_door('D');
+    }
 
     // Down
     if (switch_states[2] == 1)
@@ -538,6 +668,19 @@ void handle_player(void)
     else if (switch_states[5] == 1)
     {
         dx = 1;
+    }
+    else if (jerry.fireworks > 0 && switch_states[6] == 1)
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            if (fireworks[i].x == -1)
+            {
+                fireworks[i].x = jerry.x;
+                fireworks[i].y = jerry.y;
+                jerry.fireworks--;
+                break;
+            }
+        }
     }
 
     check_tom_collision(dx, dy);
@@ -579,7 +722,7 @@ void update_enemy(void)
     }
 }
 
-void place_cheese()
+int *find_clear()
 {
     int x, y;
     int blocked = 1;
@@ -602,7 +745,20 @@ void place_cheese()
         }
     } while (blocked == 1);
 
-    if (!blocked)
+    static int xy[2];
+    xy[0] = x;
+    xy[1] = y;
+
+    return xy;
+}
+
+void place_cheese_door(char c)
+{
+    int *xy = find_clear();
+    int x = *(xy);
+    int y = *(xy + 1);
+
+    if (c == 'C')
     {
         for (int i = 0; i < 5; i++)
         {
@@ -614,6 +770,11 @@ void place_cheese()
                 break;
             }
         }
+    }
+    else if (c == 'D')
+    {
+        door_position[0] = x;
+        door_position[1] = y;
     }
 
     cheese_time = round(elapsed_time());
@@ -648,7 +809,7 @@ void place_cheese_traps()
 
     if (cheese < 5 && current_time - cheese_time == 2 && !pause)
     {
-        place_cheese();
+        place_cheese_door('C');
     }
     else if (cheese == 5 || pause)
     {
@@ -685,18 +846,29 @@ void process(void)
 {
     clear_screen();
 
-    draw_walls();
-
-    if (!pause)
+    if (!game_over)
     {
-        game_time = elapsed_time() - pause_time;
-        update_enemy();
-    }
+        draw_walls();
 
-    draw();
-    handle_player();
-    draw_objs();
-    place_cheese_traps();
+        if (!pause)
+        {
+            game_time = elapsed_time() - pause_time;
+            update_enemy();
+            update_fireworks();
+        }
+
+        draw_fireworks();
+        draw();
+
+        handle_player();
+
+        draw_objs();
+        place_cheese_traps();
+    }
+    else
+    {
+        handle_gameover();
+    }
 
     show_screen();
     srand(TCNT0);
