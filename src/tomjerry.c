@@ -825,39 +825,83 @@ void place_cheese_traps()
     }
 }
 
-void check_wall_wrap(struct wall* w){
-    if(w->y1 < STATUS_BAR_HEIGHT && w->y2 STATUS_BAR_HEIGHT){
-        
+void check_wall_wrap(struct wall *w)
+{
+    double dx = w->x2 - w->x1;
+    double dy = w->y2 - w->y1;
+    if (w->y1 < STATUS_BAR_HEIGHT && w->y2 < STATUS_BAR_HEIGHT)
+    {
+        if (dy != 0)
+        {
+            w->y1 = dy > STATUS_BAR_HEIGHT ? LCD_Y : LCD_Y - dy;
+            w->y2 = dy > STATUS_BAR_HEIGHT ? LCD_Y + dy : LCD_Y;
+        }
+        else
+        {
+
+            w->y1 = LCD_Y;
+            w->y2 = LCD_Y;
+        }
+    }
+    if (w->y1 > LCD_Y && w->y2 > LCD_Y)
+    {
+        if (dy != 0)
+        {
+            w->y1 = dy > 0 ? STATUS_BAR_HEIGHT : STATUS_BAR_HEIGHT - dy;
+            w->y2 = dy > 0 ? STATUS_BAR_HEIGHT + dy : STATUS_BAR_HEIGHT;
+        }
+        else
+        {
+            w->y1 = STATUS_BAR_HEIGHT;
+            w->y2 = STATUS_BAR_HEIGHT;
+        }
+    }
+    if (w->x1 > LCD_X && w->x2 > LCD_X)
+    {
+        w->x1 = dx > 0 ? 0 : 0 - dx;
+        w->x2 = dx > 0 ? 0 + dx : 0;
+    }
+    if (w->x1 < 0 && w->x2 < 0)
+    {
+        w->x1 = dx > 0 ? LCD_X : LCD_X - dx;
+        w->x2 = dx > 0 ? LCD_X + dx : LCD_X;
     }
 }
 
 void move_walls()
 {
-    struct wall* wall_arr[6] = {&wall_1, &wall_2, &wall_3, &wall_4, &wall_5, &wall_6};
+    double speed = 0.2;
+    struct wall *wall_arr[6] = {&wall_1, &wall_2, &wall_3, &wall_4, &wall_5, &wall_6};
     for (int i = 0; i < 6; i++)
     {
-        check_wall_wrap(wall_arr[i]);
+        if (wall_arr[i]->x1 != 0 && wall_arr[i]->x2 != 0 && wall_arr[i]->y1 != 0 && wall_arr[i]->y2 != 0)
+        {
+            check_wall_wrap(wall_arr[i]);
 
-        double dx, dy;
-        if(wall_arr[i]->y2 - wall_arr[i]->y1 != 0 && wall_arr[i]->x2 - wall_arr[i]->x1 != 0){
-            double theta = atan(((wall_arr[i]->y2 - wall_arr[i]->y1) / (wall_arr[i]->x2 - wall_arr[i]->x1)));
-            double new_theta = M_PI - theta;
-            dx = cos(new_theta) * 0.05;
-            dy = sin(new_theta) * 0.05;
-        }
-        else if(wall_arr[i]->y2 - wall_arr[i]->y1 == 0){
-            dx = 0;
-            dy = 0.05;
-        }
-        else{
-            dx = 0.05;
-            dy = 0;
-        }
+            double dx, dy;
+            if (wall_arr[i]->y2 - wall_arr[i]->y1 != 0 && wall_arr[i]->x2 - wall_arr[i]->x1 != 0)
+            {
+                double theta = atan(((wall_arr[i]->y2 - wall_arr[i]->y1) / (wall_arr[i]->x2 - wall_arr[i]->x1)));
+                double new_theta = M_PI - theta;
+                dx = cos(new_theta) * speed;
+                dy = sin(new_theta) * speed;
+            }
+            else if (wall_arr[i]->y2 - wall_arr[i]->y1 == 0)
+            {
+                dx = 0;
+                dy = speed;
+            }
+            else
+            {
+                dx = speed;
+                dy = 0;
+            }
 
-        wall_arr[i]->x1 += dx;
-        wall_arr[i]->x2 += dx;
-        wall_arr[i]->y1 += dy;
-        wall_arr[i]->y2 += dy;
+            wall_arr[i]->x1 += dx;
+            wall_arr[i]->x2 += dx;
+            wall_arr[i]->y1 += dy;
+            wall_arr[i]->y2 += dy;
+        }
     }
 }
 
