@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <math.h>
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -55,7 +56,7 @@ struct firework
 
 struct wall
 {
-    int x1, y1, x2, y2;
+    double x1, y1, x2, y2;
 } wall_1, wall_2, wall_3, wall_4, wall_5, wall_6;
 
 volatile uint8_t state_counts[7];
@@ -64,7 +65,7 @@ volatile uint8_t switch_states[7];
 volatile uint32_t cycle_count = 0;
 
 // Fucntion Declarations
-bool check_collision(struct player plyr, double dx, double dy, char obj);
+bool check_collision(struct player plyr, double dx, double dy);
 double elapsed_time();
 void paused();
 void setup();
@@ -282,21 +283,21 @@ ISR(TIMER1_OVF_vect)
     int16_t c = usb_serial_getchar();
 
     // Down
-    if (c == 's' && jerry.y + OBJ_SIZE + 1 < LCD_Y && !check_collision(jerry, 0, 1, 'W'))
+    if (c == 's' && jerry.y + OBJ_SIZE + 1 < LCD_Y && !check_collision(jerry, 0, 1))
     {
         jerry.y++;
     }
     // Left
-    else if (c == 'a' && jerry.x - 1 > 0 && !check_collision(jerry, -1, 0, 'W'))
+    else if (c == 'a' && jerry.x - 1 > 0 && !check_collision(jerry, -1, 0))
     {
         jerry.x--;
     }
     // Up
-    else if (c == 'w' && jerry.y - 1 > STATUS_BAR_HEIGHT && !check_collision(jerry, 0, -1, 'W'))
+    else if (c == 'w' && jerry.y - 1 > STATUS_BAR_HEIGHT && !check_collision(jerry, 0, -1))
     {
         jerry.y--;
     } // Right
-    else if (c == 'd' && jerry.x + 1 + OBJ_SIZE < LCD_X && !check_collision(jerry, 1, 0, 'W'))
+    else if (c == 'd' && jerry.x + 1 + OBJ_SIZE < LCD_X && !check_collision(jerry, 1, 0))
     {
         jerry.x++;
     }
@@ -496,7 +497,7 @@ bool box_collision(int dx, int dy, int x1, int y1, int x2, int y2, int offset)
     return true;
 }
 
-bool check_collision(struct player plyr, double dx, double dy, char obj)
+bool check_collision(struct player plyr, double dx, double dy)
 {
     bool collided = false;
     if (dx > 0)
@@ -517,10 +518,7 @@ bool check_collision(struct player plyr, double dx, double dy, char obj)
         dy = -1;
     }
 
-    if (obj == 'W') // MAKE PIXEL PERFECT!!!!!!!!!!!!!
-    {
-        collided = wall_collision(plyr, dx, dy);
-    }
+    collided = wall_collision(plyr, dx, dy);
 
     return collided;
 }
@@ -535,7 +533,7 @@ void check_tom_collision(int dx, int dy)
 {
     if (!box_collision(dx, dy, jerry.x, jerry.y, tom.x, tom.y, 1))
     {
-        if (jerry.x + dx + OBJ_SIZE < LCD_X && jerry.x + dx > -1 && jerry.y + dy + OBJ_SIZE < LCD_Y + 1 && jerry.y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy, 'W'))
+        if (jerry.x + dx + OBJ_SIZE < LCD_X && jerry.x + dx > -1 && jerry.y + dy + OBJ_SIZE < LCD_Y + 1 && jerry.y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy))
         {
             jerry.x += dx;
             jerry.y += dy;
@@ -585,7 +583,7 @@ void firework_homing(struct firework *frwrk)
 
     if (frwrk->x + dx < LCD_X && frwrk->x + dx > 1 && frwrk->y + dy < LCD_Y && frwrk->y + dy > 5)
     {
-        if (!is_pixel(frwrk->x + dx, frwrk->y + dy))
+        if (!is_pixel(frwrk->x + dx, frwrk->y + dy) && !is_pixel(frwrk->x + dx, frwrk->y) && !is_pixel(frwrk->x, frwrk->y + dy))
         {
             frwrk->x += dx;
             frwrk->y += dy;
@@ -704,7 +702,7 @@ void update_enemy(void)
     uint8_t xdir = dx < 0 ? 0 : 1;
     uint8_t ydir = dy < 0 ? 0 : 1;
 
-    if ((tom.x + dx + (OBJ_SIZE * xdir) > LCD_X) || (tom.x + dx < 0) || (tom.y + dy + (OBJ_SIZE * ydir) > LCD_Y) || (tom.y + dy < STATUS_BAR_HEIGHT + 1) || check_collision(tom, dx, dy, 'W') || check_collision(tom, dx, 0, 'W') || check_collision(tom, 0, dy, 'W'))
+    if ((tom.x + dx + (OBJ_SIZE * xdir) > LCD_X) || (tom.x + dx < 0) || (tom.y + dy + (OBJ_SIZE * ydir) > LCD_Y) || (tom.y + dy < STATUS_BAR_HEIGHT + 1) || check_collision(tom, dx, dy) || check_collision(tom, dx, 0) || check_collision(tom, 0, dy))
     {
         randomize_tom();
     }
@@ -827,6 +825,42 @@ void place_cheese_traps()
     }
 }
 
+void check_wall_wrap(struct wall* w){
+    if(w->y1 < STATUS_BAR_HEIGHT && w->y2 STATUS_BAR_HEIGHT){
+        
+    }
+}
+
+void move_walls()
+{
+    struct wall* wall_arr[6] = {&wall_1, &wall_2, &wall_3, &wall_4, &wall_5, &wall_6};
+    for (int i = 0; i < 6; i++)
+    {
+        check_wall_wrap(wall_arr[i]);
+
+        double dx, dy;
+        if(wall_arr[i]->y2 - wall_arr[i]->y1 != 0 && wall_arr[i]->x2 - wall_arr[i]->x1 != 0){
+            double theta = atan(((wall_arr[i]->y2 - wall_arr[i]->y1) / (wall_arr[i]->x2 - wall_arr[i]->x1)));
+            double new_theta = M_PI - theta;
+            dx = cos(new_theta) * 0.05;
+            dy = sin(new_theta) * 0.05;
+        }
+        else if(wall_arr[i]->y2 - wall_arr[i]->y1 == 0){
+            dx = 0;
+            dy = 0.05;
+        }
+        else{
+            dx = 0.05;
+            dy = 0;
+        }
+
+        wall_arr[i]->x1 += dx;
+        wall_arr[i]->x2 += dx;
+        wall_arr[i]->y1 += dy;
+        wall_arr[i]->y2 += dy;
+    }
+}
+
 void paused()
 {
     pause = !pause;
@@ -848,6 +882,7 @@ void process(void)
 
     if (!game_over)
     {
+        move_walls();
         draw_walls();
 
         if (!pause)
@@ -857,11 +892,9 @@ void process(void)
             update_fireworks();
         }
 
-        draw_fireworks();
         draw();
-
         handle_player();
-
+        draw_fireworks();
         draw_objs();
         place_cheese_traps();
     }
