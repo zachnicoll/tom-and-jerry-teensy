@@ -13,12 +13,15 @@
 #include <macros.h>
 #include "lcd_model.h"
 #include <usb_serial.h>
+#include <cab202_adc.h>
 
 // Contant Vars
 #define STATUS_BAR_HEIGHT 8
 #define NUM_SWITCHES 7
 #define OBJ_SIZE 5
 #define MINSPEED 0.2
+#define MAX_PLR_SPEED 2
+#define MAX_WALL_SPEED 2
 
 // Jerry Bitmap
 uint8_t jerry_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1, 1, 0, 1, 1}, {1, 0, 0, 1, 1}, {1, 1, 1, 1, 1}};
@@ -42,7 +45,7 @@ int cheese_positions[5][2], trap_positions[5][2], door_position[2];
 bool pause = false;
 bool game_over = false;
 bool pause_check = false;
-
+double player_speed, wall_speed;
 struct player
 {
     int lives, score, fireworks;
@@ -134,7 +137,7 @@ void setup_vars(void)
 
         tom.x = LCD_X - 5;
         tom.y = LCD_Y - 9;
-        tom.speed = (double)rand() / (double)RAND_MAX * MINSPEED + MINSPEED;
+        tom.speed = ((double)rand() / (double)RAND_MAX * MINSPEED + MINSPEED) * player_speed;
         tom.direction = ((double)rand() / (double)RAND_MAX) * M_PI * 2;
 
         wall_1.x1 = 18;
@@ -215,8 +218,8 @@ void setup(void)
     CLEAR_BIT(DDRF, 6); // SW3 (Right Button)
 
     // Thumbwheels - Input
-    CLEAR_BIT(DDRF, 1); // Left Pot
-    CLEAR_BIT(DDRF, 2); // Right Pot
+    adc_init();
+    
 
     // LEDs - Output
     SET_BIT(DDRB, 2); // Left LED
@@ -291,7 +294,7 @@ ISR(TIMER1_OVF_vect)
     // Down
     if (c == 's' && jerry.y + OBJ_SIZE + 1 < LCD_Y && !check_collision(jerry, 0, 1))
     {
-        jerry.y++;
+        jerry.y ++;
     }
     // Left
     else if (c == 'a' && jerry.x - 1 > 0 && !check_collision(jerry, -1, 0))
@@ -490,7 +493,7 @@ bool wall_collision(struct player plyr, int dx, int dy)
     return false;
 }
 
-bool box_collision(int dx, int dy, int x1, int y1, int x2, int y2, int offset)
+bool box_collision(double dx, double dy, int x1, int y1, int x2, int y2, int offset)
 {
     // If one rectangle is on left side of other
     if (x1 + dx > x2 + OBJ_SIZE - offset || x2 > x1 + dx + OBJ_SIZE - offset)
@@ -535,7 +538,7 @@ bool check_collision(struct player plyr, double dx, double dy)
 
 void randomize_tom()
 {
-    tom.speed = (double)rand() / (double)RAND_MAX * MINSPEED + MINSPEED;
+    tom.speed = ((double)rand() / (double)RAND_MAX * MINSPEED + MINSPEED) * player_speed;
     tom.direction = ((double)rand() / (double)RAND_MAX) * M_PI * 2;
 }
 
@@ -551,7 +554,7 @@ void reset_tom()
     tom.y = tom.init_y;
 }
 
-void check_tom_collision(int dx, int dy)
+void check_tom_collision(double dx, double dy)
 {
     if (!box_collision(dx, dy, jerry.x, jerry.y, tom.x, tom.y, 1))
     {
@@ -649,8 +652,8 @@ void update_fireworks()
 
 void handle_player(void)
 {
-    int dx = 0;
-    int dy = 0;
+    double dx = 0;
+    double dy = 0;
 
     if (jerry.lives == 0)
     {
@@ -670,21 +673,21 @@ void handle_player(void)
     // Down
     if (switch_states[2] == 1)
     {
-        dy = 1;
+        dy = 1 * player_speed;
     }
     // Left
     else if (switch_states[3] == 1)
     {
-        dx = -1;
+        dx = -1 * player_speed;
     }
     // Up
     else if (switch_states[4] == 1)
     {
-        dy = -1;
+        dy = -1 * player_speed;
     } // Right
     else if (switch_states[5] == 1)
     {
-        dx = 1;
+        dx = 1 * player_speed;
     }
     else if (jerry.fireworks > 0 && switch_states[6] == 1)
     {
@@ -716,8 +719,8 @@ void handle_player(void)
 
 void update_enemy(void)
 {
-    double dx = cos(tom.direction) * tom.speed;
-    double dy = sin(tom.direction) * tom.speed;
+    double dx = cos(tom.direction) * (tom.speed * player_speed);
+    double dy = sin(tom.direction) * (tom.speed * player_speed);
     uint8_t xdir = dx < 0 ? 0 : 1;
     uint8_t ydir = dy < 0 ? 0 : 1;
 
@@ -896,7 +899,7 @@ void check_wall_wrap(struct wall *w)
 
 void move_walls()
 {
-    double speed = 0.05;
+    double speed = 0.05 * wall_speed;
     struct wall *wall_arr[6] = {&wall_1, &wall_2, &wall_3, &wall_4, &wall_5, &wall_6};
     for (int i = 0; i < 6; i++)
     {
@@ -950,6 +953,15 @@ void check_wall_overlap()
     }
 }
 
+void set_speeds(){
+    double left_adc = adc_read(0);
+	double right_adc = adc_read(1);
+
+    player_speed = (left_adc/1024.0) * 2; 
+    wall_speed = ((512.0 - right_adc)/512.0) * 2;
+
+}
+
 void paused()
 {
     pause = !pause;
@@ -971,6 +983,7 @@ void process(void)
 
     if (!game_over)
     {
+        set_speeds();
         move_walls();
         draw_walls();
         check_wall_overlap();

@@ -1,17 +1,8 @@
-# CAB202 Teensy Makefile
-# Lawrence Buckingham, September 2017.
+# cab202_adc Makefile.
+# Lawrence Buckingham, October 2017.
 # Queensland University of Technology.
 
-# Replace these targets with your target (hex file) name, including the .hex part.
-
-TARGETS = \
-	tomjerry.hex
-
-# Set the name of the folder containing libcab202_teensy.a
-
-CAB202_TEENSY_FOLDER = ./cab202_teensy 
-USB_SERIAL_FOLDER = ./usb_serial
-ADC_FOLDER = ./cab202_adc
+TARGETS = cab202_adc.o
 
 # ---------------------------------------------------------------------------
 #	Leave the rest of the file alone.
@@ -19,8 +10,6 @@ ADC_FOLDER = ./cab202_adc
 
 all: $(TARGETS)
 
-TEENSY_LIBS = -lcab202_teensy -lprintf_flt -lm 
-TEENSY_DIRS =-I$(CAB202_TEENSY_FOLDER) -L$(CAB202_TEENSY_FOLDER) -I$(USB_SERIAL_FOLDER) -I$(ADC_FOLDER)
 TEENSY_FLAGS = \
 	-std=gnu99 \
 	-mmcu=atmega32u4 \
@@ -44,6 +33,5 @@ clean:
 
 rebuild: clean all
 
-%.hex : %.c
-	avr-gcc $< $(TEENSY_FLAGS) $(TEENSY_DIRS) $(TEENSY_LIBS) -o $@.obj usb_serial/usb_serial.o cab202_adc/cab202_adc.o
-	avr-objcopy -O ihex $@.obj $@
+%.o : %.c
+	avr-gcc -c $< $(TEENSY_FLAGS)
