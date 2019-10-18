@@ -255,6 +255,12 @@ void setup(void)
     TIMSK3 = 1; // Enable  overflow interupts for this timer.
 }
 
+void output_state()
+{
+    usb_serial_putchar(jerry.lives);
+    usb_serial_putchar('\n');
+}
+
 // Interrupts
 ISR(TIMER0_OVF_vect)
 {
@@ -300,6 +306,10 @@ ISR(TIMER1_OVF_vect)
     else if (c == 'd' && jerry.x + 1 + OBJ_SIZE < LCD_X && !check_collision(jerry, 1, 0))
     {
         jerry.x++;
+    }
+    else if (c == 'i')
+    {
+        output_state();
     }
 }
 
@@ -529,6 +539,18 @@ void randomize_tom()
     tom.direction = ((double)rand() / (double)RAND_MAX) * M_PI * 2;
 }
 
+void reset_jerry()
+{
+    jerry.x = jerry.init_x;
+    jerry.y = jerry.init_y;
+}
+
+void reset_tom()
+{
+    tom.x = tom.init_x;
+    tom.y = tom.init_y;
+}
+
 void check_tom_collision(int dx, int dy)
 {
     if (!box_collision(dx, dy, jerry.x, jerry.y, tom.x, tom.y, 1))
@@ -541,11 +563,10 @@ void check_tom_collision(int dx, int dy)
     }
     else
     {
-        jerry.x = jerry.init_x;
-        jerry.y = jerry.init_y;
+        reset_jerry();
+        reset_tom();
         jerry.lives--;
-        tom.x = tom.init_x;
-        tom.y = tom.init_y;
+
         randomize_tom();
     }
 }
@@ -611,9 +632,7 @@ void update_fireworks()
         {
             if ((round(fireworks[i].x) >= round(tom.x) && round(fireworks[i].x) < round(tom.x + OBJ_SIZE)) && (round(fireworks[i].y) >= round(tom.y) && round(fireworks[i].y) < round(tom.y + OBJ_SIZE)))
             {
-                tom.x = tom.init_x;
-                tom.y = tom.init_y;
-
+                reset_tom();
                 fireworks[i].x = -1;
                 fireworks[i].y = -1;
                 jerry.fireworks++;
@@ -730,16 +749,23 @@ int *find_clear()
         x = round(((double)rand() / (double)RAND_MAX) * (LCD_X - OBJ_SIZE));
         y = round(((double)rand() / (double)RAND_MAX) * (LCD_Y - STATUS_BAR_HEIGHT - OBJ_SIZE)) + STATUS_BAR_HEIGHT + OBJ_SIZE;
         blocked = 0;
-        for (int j = 0; j < OBJ_SIZE; j++)
+        if (x + OBJ_SIZE < LCD_X && x > 0 && y > STATUS_BAR_HEIGHT && y + OBJ_SIZE < LCD_Y)
         {
-            for (int k = 0; k < OBJ_SIZE; k++)
+            for (int j = 0; j < OBJ_SIZE; j++)
             {
-                if (is_pixel(x + j, y + k))
+                for (int k = 0; k < OBJ_SIZE; k++)
                 {
-                    blocked = 1;
-                    break;
+                    if (is_pixel(x + j, y + k))
+                    {
+                        blocked = 1;
+                        break;
+                    }
                 }
             }
+        }
+        else
+        {
+            blocked = 1;
         }
     } while (blocked == 1);
 
@@ -870,7 +896,7 @@ void check_wall_wrap(struct wall *w)
 
 void move_walls()
 {
-    double speed = 0.2;
+    double speed = 0.05;
     struct wall *wall_arr[6] = {&wall_1, &wall_2, &wall_3, &wall_4, &wall_5, &wall_6};
     for (int i = 0; i < 6; i++)
     {
@@ -905,6 +931,25 @@ void move_walls()
     }
 }
 
+void check_wall_overlap()
+{
+    for (int i = 0; i < OBJ_SIZE; i++)
+    {
+        for (int j = 0; j < OBJ_SIZE; j++)
+        {
+            if (is_pixel(jerry.x + i, jerry.y + j))
+            {
+                reset_jerry();
+            }
+
+            if (is_pixel(tom.x + i, tom.y + j))
+            {
+                reset_tom();
+            }
+        }
+    }
+}
+
 void paused()
 {
     pause = !pause;
@@ -928,6 +973,7 @@ void process(void)
     {
         move_walls();
         draw_walls();
+        check_wall_overlap();
 
         if (!pause)
         {
