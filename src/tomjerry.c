@@ -862,8 +862,8 @@ void check_wall_wrap(struct wall *w)
     {
         if (dy != 0)
         {
-            w->y1 = dy > STATUS_BAR_HEIGHT ? LCD_Y : LCD_Y - dy;
-            w->y2 = dy > STATUS_BAR_HEIGHT ? LCD_Y + dy : LCD_Y;
+            w->y1 = dy > 0 ? LCD_Y : LCD_Y - dy;
+            w->y2 = dy > 0 ? LCD_Y + dy: LCD_Y;
         }
         else
         {
@@ -876,8 +876,8 @@ void check_wall_wrap(struct wall *w)
     {
         if (dy != 0)
         {
-            w->y1 = dy > 0 ? STATUS_BAR_HEIGHT : STATUS_BAR_HEIGHT - dy;
-            w->y2 = dy > 0 ? STATUS_BAR_HEIGHT + dy : STATUS_BAR_HEIGHT;
+            w->y1 = dy > 0 ? STATUS_BAR_HEIGHT - dy: STATUS_BAR_HEIGHT;
+            w->y2 = dy > 0 ? STATUS_BAR_HEIGHT : STATUS_BAR_HEIGHT + dy;
         }
         else
         {
@@ -887,8 +887,8 @@ void check_wall_wrap(struct wall *w)
     }
     if (w->x1 > LCD_X && w->x2 > LCD_X)
     {
-        w->x1 = dx > 0 ? 0 : 0 - dx;
-        w->x2 = dx > 0 ? 0 + dx : 0;
+        w->x1 = dx > 0 ? 0 - dx : 0;
+        w->x2 = dx > 0 ? 0 : 0 + dx;
     }
     if (w->x1 < 0 && w->x2 < 0)
     {
