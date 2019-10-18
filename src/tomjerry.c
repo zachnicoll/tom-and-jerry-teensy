@@ -45,7 +45,8 @@ int cheese_positions[5][2], trap_positions[5][2], door_position[2];
 bool pause = false;
 bool game_over = false;
 bool pause_check = false;
-double player_speed, wall_speed;
+double player_speed = 1;
+double wall_speed = 1;
 struct player
 {
     int lives, score, fireworks;
@@ -125,6 +126,46 @@ void handle_gameover()
     }
 }
 
+void level1_walls()
+{
+    wall_1.x1 = 18;
+    wall_1.y1 = 15;
+    wall_1.x2 = 13;
+    wall_1.y2 = 25;
+
+    wall_2.x1 = 25;
+    wall_2.y1 = 35;
+    wall_2.x2 = 25;
+    wall_2.y2 = 45;
+
+    wall_3.x1 = 45;
+    wall_3.y1 = 10;
+    wall_3.x2 = 60;
+    wall_3.y2 = 10;
+
+    wall_4.x1 = 58;
+    wall_4.y1 = 25;
+    wall_4.x2 = 72;
+    wall_4.y2 = 30;
+}
+
+void level2_walls(){
+    wall_1.x1 = 10;
+    wall_1.y1 = 25;
+    wall_1.x2 = 40;
+    wall_1.y2 = 25;
+}
+
+void reset_walls(){
+    struct wall *wall_arr[6] = {&wall_1, &wall_2, &wall_3, &wall_4, &wall_5, &wall_6};
+    for(int i = 0; i < 6; i++){
+        wall_arr[i]->x1 = -1;
+        wall_arr[i]->y1 = -1;
+        wall_arr[i]->x2 = -1;
+        wall_arr[i]->y2 = -1;
+    }
+}
+
 void setup_vars(void)
 {
     if (current_level == 1)
@@ -140,25 +181,16 @@ void setup_vars(void)
         tom.speed = ((double)rand() / (double)RAND_MAX * MINSPEED + MINSPEED) * player_speed;
         tom.direction = ((double)rand() / (double)RAND_MAX) * M_PI * 2;
 
-        wall_1.x1 = 18;
-        wall_1.y1 = 15;
-        wall_1.x2 = 13;
-        wall_1.y2 = 25;
-
-        wall_2.x1 = 25;
-        wall_2.y1 = 35;
-        wall_2.x2 = 25;
-        wall_2.y2 = 45;
-
-        wall_3.x1 = 45;
-        wall_3.y1 = 10;
-        wall_3.x2 = 60;
-        wall_3.y2 = 10;
-
-        wall_4.x1 = 58;
-        wall_4.y1 = 25;
-        wall_4.x2 = 72;
-        wall_4.y2 = 30;
+        level1_walls();
+    }
+    else
+    {
+        reset_walls();
+        jerry.x = 0;
+        jerry.y = STATUS_BAR_HEIGHT + 1;
+        tom.x = LCD_X - 5;
+        tom.y = LCD_Y - 9;
+        level2_walls();
     }
 
     jerry.init_x = jerry.x;
@@ -219,7 +251,6 @@ void setup(void)
 
     // Thumbwheels - Input
     adc_init();
-    
 
     // LEDs - Output
     SET_BIT(DDRB, 2); // Left LED
@@ -294,7 +325,7 @@ ISR(TIMER1_OVF_vect)
     // Down
     if (c == 's' && jerry.y + OBJ_SIZE + 1 < LCD_Y && !check_collision(jerry, 0, 1))
     {
-        jerry.y ++;
+        jerry.y++;
     }
     // Left
     else if (c == 'a' && jerry.x - 1 > 0 && !check_collision(jerry, -1, 0))
@@ -556,9 +587,11 @@ void reset_tom()
 
 void check_tom_collision(double dx, double dy)
 {
-    if (!box_collision(dx, dy, jerry.x, jerry.y, tom.x, tom.y, 1))
+    int x = round(jerry.x);
+    int y = round(jerry.y);
+    if (!box_collision(dx, dy, x, y, tom.x, tom.y, 1))
     {
-        if (jerry.x + dx + OBJ_SIZE < LCD_X && jerry.x + dx > -1 && jerry.y + dy + OBJ_SIZE < LCD_Y + 1 && jerry.y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy))
+        if (x + dx + OBJ_SIZE < LCD_X && x + dx > -1 && y + dy + OBJ_SIZE < LCD_Y + 1 && y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy))
         {
             jerry.x += dx;
             jerry.y += dy;
@@ -669,6 +702,14 @@ void handle_player(void)
     {
         place_cheese_door('D');
     }
+
+    if ( (door_position[0] != -10 && box_collision(0, 0, jerry.x, jerry.y, door_position[0], door_position[1], 0)) || (switch_states[1] == 1 && current_level == 1) ){
+        current_level = 2;
+        setup_vars();
+    }
+
+
+
 
     // Down
     if (switch_states[2] == 1)
@@ -863,11 +904,10 @@ void check_wall_wrap(struct wall *w)
         if (dy != 0)
         {
             w->y1 = dy > 0 ? LCD_Y : LCD_Y - dy;
-            w->y2 = dy > 0 ? LCD_Y + dy: LCD_Y;
+            w->y2 = dy > 0 ? LCD_Y + dy : LCD_Y;
         }
         else
         {
-
             w->y1 = LCD_Y;
             w->y2 = LCD_Y;
         }
@@ -876,7 +916,7 @@ void check_wall_wrap(struct wall *w)
     {
         if (dy != 0)
         {
-            w->y1 = dy > 0 ? STATUS_BAR_HEIGHT - dy: STATUS_BAR_HEIGHT;
+            w->y1 = dy > 0 ? STATUS_BAR_HEIGHT - dy : STATUS_BAR_HEIGHT;
             w->y2 = dy > 0 ? STATUS_BAR_HEIGHT : STATUS_BAR_HEIGHT + dy;
         }
         else
@@ -953,13 +993,13 @@ void check_wall_overlap()
     }
 }
 
-void set_speeds(){
+void set_speeds()
+{
     double left_adc = adc_read(0);
-	double right_adc = adc_read(1);
+    double right_adc = adc_read(1);
 
-    player_speed = (left_adc/1024.0) * 2; 
-    wall_speed = ((512.0 - right_adc)/512.0) * 2;
-
+    player_speed = (left_adc / 1024.0) * 2;
+    wall_speed = ((512.0 - right_adc) / 512.0) * 2;
 }
 
 void paused()
@@ -984,9 +1024,9 @@ void process(void)
     if (!game_over)
     {
         set_speeds();
-        move_walls();
+        if(!pause){move_walls();}
         draw_walls();
-        check_wall_overlap();
+        if(!pause){check_wall_overlap();}
 
         if (!pause)
         {
