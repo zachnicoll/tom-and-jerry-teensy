@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -22,6 +23,7 @@
 #define MINSPEED 0.2
 #define MAX_PLR_SPEED 2
 #define MAX_WALL_SPEED 2
+#define MAX_BRIGHTNESS 15
 
 // Jerry Bitmap
 uint8_t jerry_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1, 1, 0, 1, 1}, {1, 0, 0, 1, 1}, {1, 1, 1, 1, 1}};
@@ -45,7 +47,7 @@ uint8_t door_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1,
 uint8_t milk_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 1, 0, 1, 1}, {1, 0, 0, 0, 1}, {1, 1, 0, 1, 1}, {1, 1, 1, 1, 1}};
 
 // Global Vars
-int current_level = 1, cheese, cheese_collected, cheese_time, traps, trap_supply, trap_time, placing_trap, milk_time, placing_milk, milk_placed, super_activated;
+int current_level = 1, cheese, cheese_collected, cheese_time, traps, trap_time, placing_trap, milk_time, placing_milk, milk_placed, super_activated, super_time;
 double game_time, pause_start, pause_end, pause_time;
 int cheese_positions[5][2], trap_positions[5][2], door_position[2], milk_position[2];
 bool pause = false;
@@ -73,6 +75,9 @@ volatile uint8_t state_counts[7];
 volatile uint8_t switch_states[7];
 // [SW1, SW2, SWA, SWB, SWC, SWD, SWCENTER]
 volatile uint32_t cycle_count = 0;
+volatile uint8_t brightness = MAX_BRIGHTNESS;
+uint8_t brightness_dir = 1;
+volatile uint8_t pwm_counter = 0;
 
 // Fucntion Declarations
 bool check_collision(struct player plyr, double dx, double dy);
@@ -81,6 +86,7 @@ void paused();
 void setup();
 void setup_vars();
 void place_cheese_door(char c);
+void shoot_firework();
 
 // FOR DEBUGGING
 void send_str(const char *s)
@@ -205,6 +211,7 @@ void setup_vars(void)
     jerry.init_x = jerry.x;
     jerry.init_y = jerry.y;
     super_activated = 0;
+    cheese_collected = 0;
 
     tom.init_x = tom.x;
     tom.init_y = tom.y;
@@ -275,12 +282,15 @@ void setup(void)
 
     // Timer 0 (debouncer), normal mode, 0.08s overflow
     TCCR0A = 0;
-    TCCR0B = 4;
+    TCCR0B = 1;
     TIMSK0 = 1; // Enable  overflow interupts for this timer.
 
     // Timer 1 (usb_serial inputs), normal mode, 0.08s overflow
-    TCCR1A = 0;
-    TCCR1B = 4;
+    CLEAR_BIT(TCCR1A, WGM10);
+    CLEAR_BIT(TCCR1A, WGM11);
+    CLEAR_BIT(TCCR1B, WGM12);
+    CLEAR_BIT(TCCR1B, WGM13);
+    SET_BIT(TCCR1B, CS10);
     TIMSK1 = 1; // Enable  overflow interupts for this timer.
 
     // Enable interupts
@@ -304,21 +314,68 @@ void setup(void)
     TIMSK3 = 1; // Enable  overflow interupts for this timer.
 }
 
+void send_formatted(char *buffer, int buffer_size, const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buffer, buffer_size, format, args);
+    usb_serial_write((uint8_t *)buffer, strlen(buffer));
+}
+
 void output_state()
 {
-    usb_serial_putchar(jerry.lives);
-    usb_serial_putchar('\n');
+    char str_buffer[80];
+
+    int i_minutes = floor(game_time / 60.0);
+    double fl_minutes = game_time / 60.0;
+    double fraction = fl_minutes - floor(fl_minutes);
+    int seconds = 60.0 * fraction;
+
+    send_formatted(str_buffer, sizeof(str_buffer), "\rGame Time: %02d:%02d\n", i_minutes, seconds);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rCurrent Level: %d\n", current_level);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rLives: %d\n", jerry.lives);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rScore: %d\n", jerry.score);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rFireworks on Screen: %d\n", jerry.fireworks);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rMoustraps on Screen: %d\n", traps);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rCheese on Screen: %d\n", cheese);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rCheese Collected in Room: %d\n", cheese_collected);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rSuper Mode Active: %d\n", super_activated);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rPaused: %d\r\n", pause);
 }
 
 // Interrupts
 ISR(TIMER0_OVF_vect)
 {
+    if (super_activated)
+    {
+        if (pwm_counter % brightness == 0)
+        {
+            SET_BIT(PORTB, 2);
+            SET_BIT(PORTB, 3);
+        }
+        else
+        {
+            CLEAR_BIT(PORTB, 2);
+            CLEAR_BIT(PORTB, 3);
+        }
+        pwm_counter++;
+    }
+    else
+    {
+        CLEAR_BIT(PORTB, 2);
+        CLEAR_BIT(PORTB, 3);
+    }
+}
+
+ISR(TIMER1_OVF_vect)
+{
     uint8_t pin_arr_1[NUM_SWITCHES] = {PINF, PINF, PINB, PINB, PIND, PIND, PINB};
     uint8_t pin_arr_2[NUM_SWITCHES] = {5, 6, 7, 1, 1, 0, 0};
+
     for (int i = 0; i < NUM_SWITCHES; i++)
     {
         state_counts[i] = state_counts[i] << 1;
-        uint8_t mask = 0b00011111;
+        uint8_t mask = 0b00001111;
         state_counts[i] &= mask;
         state_counts[i] |= BIT_IS_SET(pin_arr_1[i], pin_arr_2[i]);
 
@@ -331,10 +388,7 @@ ISR(TIMER0_OVF_vect)
             switch_states[i] = 0;
         }
     }
-}
 
-ISR(TIMER1_OVF_vect)
-{
     int16_t c = usb_serial_getchar();
 
     // Down
@@ -359,6 +413,19 @@ ISR(TIMER1_OVF_vect)
     else if (c == 'i')
     {
         output_state();
+    }
+    else if (c == 'p')
+    {
+        paused();
+    }
+    else if (c == 'l')
+    {
+        current_level = 2;
+        setup_vars();
+    }
+    else if (c == 'f')
+    {
+        shoot_firework();
     }
 }
 
@@ -385,7 +452,6 @@ void draw_gui(void)
     sprintf(str_buffer, "S:%d", jerry.score);
     draw_string(36, 0, str_buffer, FG_COLOUR);
 
-    // FIX TIME!!!!!!!!!!!!!! USING TIMER INTERUPT AT 1 SECOND
     int i_minutes = floor(game_time / 60.0);
     double fl_minutes = game_time / 60.0;
     double fraction = fl_minutes - floor(fl_minutes);
@@ -491,8 +557,19 @@ void draw_fireworks()
     }
 }
 
-void draw_super_jerry(){
-    
+void draw_super_jerry()
+{
+    // Draw Bitmap
+    for (int i = 0; i < OBJ_SIZE + 1; i++)
+    {
+        for (int j = 0; j < OBJ_SIZE + 1; j++)
+        {
+            if (super_jerry_bitmap[j][i] == 1)
+            {
+                draw_pixel(jerry.x + i, jerry.y + j, FG_COLOUR);
+            }
+        }
+    }
 }
 
 void draw(void)
@@ -572,25 +649,28 @@ bool box_collision(double dx, double dy, int x1, int y1, int x2, int y2, int off
 bool check_collision(struct player plyr, double dx, double dy)
 {
     bool collided = false;
-    if (dx > 0)
+    if (!super_activated)
     {
-        dx = 1;
-    }
-    else if (dx < 0)
-    {
-        dx = -1;
-    }
+        if (dx > 0)
+        {
+            dx = 1;
+        }
+        else if (dx < 0)
+        {
+            dx = -1;
+        }
 
-    if (dy > 0)
-    {
-        dy = 1;
-    }
-    else if (dy < 0)
-    {
-        dy = -1;
-    }
+        if (dy > 0)
+        {
+            dy = 1;
+        }
+        else if (dy < 0)
+        {
+            dy = -1;
+        }
 
-    collided = wall_collision(plyr, dx, dy);
+        collided = wall_collision(plyr, dx, dy);
+    }
 
     return collided;
 }
@@ -619,7 +699,7 @@ void check_tom_collision(double dx, double dy)
     int y = round(jerry.y);
     if (!box_collision(dx, dy, x, y, tom.x, tom.y, 1))
     {
-        if (x + dx + OBJ_SIZE < LCD_X && x + dx > -1 && y + dy + OBJ_SIZE < LCD_Y + 1 && y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy))
+        if (x + dx + OBJ_SIZE + super_activated < LCD_X && x + dx >= 0 && y + dy + OBJ_SIZE + super_activated < LCD_Y + 1 && y + dy > STATUS_BAR_HEIGHT && !check_collision(jerry, dx, dy))
         {
             jerry.x += dx;
             jerry.y += dy;
@@ -627,10 +707,16 @@ void check_tom_collision(double dx, double dy)
     }
     else
     {
-        reset_jerry();
+        if (!super_activated)
+        {
+            reset_jerry();
+            jerry.lives--;
+        }
+        else
+        {
+            jerry.score++;
+        }
         reset_tom();
-        jerry.lives--;
-
         randomize_tom();
     }
 }
@@ -642,12 +728,13 @@ void check_cheese_trap_collision()
         if (box_collision(0, 0, jerry.x, jerry.y, cheese_positions[i][0], cheese_positions[i][1], 1))
         {
             jerry.score++;
+            cheese_collected++;
             cheese--;
             cheese_positions[i][0] = -10;
             cheese_positions[i][1] = -10;
         }
 
-        if (box_collision(0, 0, jerry.x, jerry.y, trap_positions[i][0], trap_positions[i][1], 1))
+        if (!super_activated && box_collision(0, 0, jerry.x, jerry.y, trap_positions[i][0], trap_positions[i][1], 1))
         {
             jerry.lives--;
             traps--;
@@ -659,6 +746,7 @@ void check_cheese_trap_collision()
     if (milk_placed == 1 && box_collision(0, 0, jerry.x, jerry.y, milk_position[0], milk_position[1], 1))
     {
         super_activated = 1;
+        super_time = round(elapsed_time());
         milk_position[0] = -10;
         milk_position[1] = -10;
         milk_placed = 0;
@@ -719,6 +807,20 @@ void update_fireworks()
     }
 }
 
+void shoot_firework()
+{
+    for (int i = 0; i < 20; i++)
+    {
+        if (fireworks[i].x == -1)
+        {
+            fireworks[i].x = jerry.x;
+            fireworks[i].y = jerry.y;
+            jerry.fireworks--;
+            break;
+        }
+    }
+}
+
 void handle_player(void)
 {
     double dx = 0;
@@ -736,8 +838,20 @@ void handle_player(void)
 
     if ((door_position[0] != -10 && box_collision(0, 0, jerry.x, jerry.y, door_position[0], door_position[1], 0)) || (switch_states[1] == 1 && current_level == 1))
     {
-        current_level = 2;
-        setup_vars();
+        if (current_level == 1)
+        {
+            current_level = 2;
+            setup_vars();
+        }
+        else
+        {
+            game_over = true;
+        }
+    }
+
+    if (game_time - super_time >= 10)
+    {
+        super_activated = 0;
     }
 
     // Down
@@ -761,16 +875,7 @@ void handle_player(void)
     }
     else if (jerry.fireworks > 0 && switch_states[6] == 1)
     {
-        for (int i = 0; i < 20; i++)
-        {
-            if (fireworks[i].x == -1)
-            {
-                fireworks[i].x = jerry.x;
-                fireworks[i].y = jerry.y;
-                jerry.fireworks--;
-                break;
-            }
-        }
+        shoot_firework();
     }
 
     check_tom_collision(dx, dy);
@@ -933,7 +1038,7 @@ void place_cheese_traps()
 {
     int current_time = round(elapsed_time());
 
-    if (jerry.score == 5 && door_position[0] == -10)
+    if (cheese_collected == 5 && door_position[0] == -10)
     {
         place_cheese_door('D');
     }
@@ -957,14 +1062,17 @@ void place_cheese_traps()
         trap_time = round(elapsed_time());
     }
 
-    if (placing_milk || (milk_placed == 0 && current_time - milk_time == 5 && !pause))
+    if (current_level == 2)
     {
-        placing_milk = 1;
-        place_milk();
-    }
-    else if (milk_placed == 1 || pause)
-    {
-        milk_time = round(elapsed_time());
+        if (placing_milk || (milk_placed == 0 && current_time - milk_time == 5 && !pause))
+        {
+            placing_milk = 1;
+            place_milk();
+        }
+        else if (milk_placed == 1 || pause)
+        {
+            milk_time = round(elapsed_time());
+        }
     }
 }
 
@@ -1053,7 +1161,7 @@ void check_wall_overlap()
     {
         for (int j = 0; j < OBJ_SIZE; j++)
         {
-            if (is_pixel(jerry.x + i, jerry.y + j))
+            if (!super_activated && is_pixel(jerry.x + i, jerry.y + j))
             {
                 reset_jerry();
             }
@@ -1073,6 +1181,27 @@ void set_speeds()
 
     player_speed = (left_adc / 1024.0) * 2;
     wall_speed = ((512.0 - right_adc) / 512.0) * 2;
+}
+
+void adjust_brightness()
+{
+    if (brightness >= MAX_BRIGHTNESS)
+    {
+        brightness_dir = 0;
+    }
+    else if (brightness <= 1)
+    {
+        brightness_dir = 1;
+    }
+
+    if (brightness_dir == 1)
+    {
+        brightness++;
+    }
+    else
+    {
+        brightness--;
+    }
 }
 
 void paused()
@@ -1101,6 +1230,7 @@ void process(void)
         if (super_activated)
         {
             draw_super_jerry();
+            adjust_brightness();
         }
 
         if (!pause)
