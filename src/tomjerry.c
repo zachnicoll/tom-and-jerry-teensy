@@ -1269,13 +1269,13 @@ void get_usb(void)
             if (c == 'T')
             {   
                 usb_serial_read_string(char_buffer);
-                sscanf(char_buffer, "%d %d", &tom.init_x, &tom.init_y);
+                sscanf(char_buffer, "%lf %lf", &tom.init_x, &tom.init_y);
             }
 
             if (c == 'J')
             {
                 usb_serial_read_string(char_buffer);
-                sscanf(char_buffer, "%d %d", &jerry.init_x, &jerry.init_y);
+                sscanf(char_buffer, "%lf %lf", &jerry.init_x, &jerry.init_y);
             }
 
             //things to check here. Variable wall_num should be less than MAX_WALLS
@@ -1287,15 +1287,14 @@ void get_usb(void)
 
                 for(int i = 0; i < sizeof(wall_arr); i++){
                     if(wall_arr[i].x1 == -1 ){
-                        sscanf(walls, "%d %d %d %d", wall_arr[i].x1, wall_arr[i].y1, wall_arr[i].x2, wall_arr[i].y2 );
+                        sscanf(walls, "%lf %lf %lf %lf", &wall_arr[i].x1, &wall_arr[i].y1, &wall_arr[i].x2, &wall_arr[i].y2 );
                         break;
                     }
                 }
-                
+
             }
-        }
+        }while (c != 0);
     }
-    while (c != 0)
 }
 
 void process(void)
