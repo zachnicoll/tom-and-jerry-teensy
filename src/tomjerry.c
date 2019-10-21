@@ -872,7 +872,7 @@ void handle_player(void)
         }
     }
 
-    if (round(elapsed_time()) - super_time >= 10)
+    if (round(elapsed_time()) - super_time >= 10 && !pause)
     {
         super_activated = 0;
     }
