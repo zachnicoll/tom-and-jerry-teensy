@@ -163,10 +163,25 @@ void level1_walls()
 
 void level2_walls()
 {
-    wall_1.x1 = 10;
-    wall_1.y1 = 25;
-    wall_1.x2 = 40;
-    wall_1.y2 = 25;
+    wall_1.x1 = 24;
+    wall_1.y1 = 15;
+    wall_1.x2 = 13;
+    wall_1.y2 = 13;
+
+    wall_2.x1 = 25;
+    wall_2.y1 = 40;
+    wall_2.x2 = 37;
+    wall_2.y2 = 45;
+
+    wall_3.x1 = 33;
+    wall_3.y1 = 10;
+    wall_3.x2 = 48;
+    wall_3.y2 = 10;
+
+    wall_4.x1 = 58;
+    wall_4.y1 = 25;
+    wall_4.x2 = 58;
+    wall_4.y2 = 30;
 }
 
 void reset_walls()
@@ -203,6 +218,7 @@ void setup_vars(void)
         reset_walls();
         jerry.x = 0;
         jerry.y = STATUS_BAR_HEIGHT + 1;
+        jerry.fireworks = 20;
         tom.x = LCD_X - 5;
         tom.y = LCD_Y - 9;
         level2_walls();
@@ -331,11 +347,11 @@ void output_state()
     double fraction = fl_minutes - floor(fl_minutes);
     int seconds = 60.0 * fraction;
 
-    send_formatted(str_buffer, sizeof(str_buffer), "\rGame Time: %02d:%02d\n", i_minutes, seconds);
+    send_formatted(str_buffer, sizeof(str_buffer), "\r\n\rGame Time: %02d:%02d\n", i_minutes, seconds);
     send_formatted(str_buffer, sizeof(str_buffer), "\rCurrent Level: %d\n", current_level);
     send_formatted(str_buffer, sizeof(str_buffer), "\rLives: %d\n", jerry.lives);
     send_formatted(str_buffer, sizeof(str_buffer), "\rScore: %d\n", jerry.score);
-    send_formatted(str_buffer, sizeof(str_buffer), "\rFireworks on Screen: %d\n", jerry.fireworks);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rFireworks on Screen: %d\n", jerry.score >= 3 ? 20 - jerry.fireworks : 0);
     send_formatted(str_buffer, sizeof(str_buffer), "\rMoustraps on Screen: %d\n", traps);
     send_formatted(str_buffer, sizeof(str_buffer), "\rCheese on Screen: %d\n", cheese);
     send_formatted(str_buffer, sizeof(str_buffer), "\rCheese Collected in Room: %d\n", cheese_collected);
@@ -420,8 +436,15 @@ ISR(TIMER1_OVF_vect)
     }
     else if (c == 'l')
     {
-        current_level = 2;
-        setup_vars();
+        if (current_level == 1)
+        {
+            current_level = 2;
+            setup_vars();
+        }
+        else
+        {
+            game_over = true;
+        }
     }
     else if (c == 'f')
     {
@@ -831,7 +854,7 @@ void handle_player(void)
         game_over = true;
     }
 
-    if (jerry.score == 3 && jerry.fireworks == 0)
+    if (jerry.score == 3 && jerry.fireworks == 0 && current_level == 1)
     {
         jerry.fireworks = 20;
     }
@@ -1217,6 +1240,62 @@ void paused()
         pause_end = elapsed_time();
         pause_time += pause_end - pause_start;
     }
+}
+
+void usb_serial_read_string(char * message){
+   int c = 0;
+   int buffer_count=0;
+      
+   while (c != '\n'){
+         c = usb_serial_getchar();
+         message[buffer_count]=c;
+         buffer_count++;
+    }
+         
+
+}
+
+void get_usb(void)
+{
+
+    if (usb_serial_available())
+    {
+        char char_buffer[32];
+        int c;
+        do
+        {
+            c = usb_serial_getchar(); //read usb port
+
+            if (c == 'T')
+            {   
+                usb_serial_read_string(char_buffer);
+                sscanf(char_buffer, "%d %d", &tom.init_x, &tom.init_y);
+            }
+
+            if (c == 'J')
+            {
+                usb_serial_read_string(char_buffer);
+                sscanf(char_buffer, "%d %d", &jerry.init_x, &jerry.init_y);
+            }
+
+            //things to check here. Variable wall_num should be less than MAX_WALLS
+            if (c == 'W')
+            {
+                char walls[64];
+                usb_serial_read_string(walls);
+                struct wall wall_arr[6] = {wall_1, wall_2, wall_3, wall_4, wall_5, wall_6};
+
+                for(int i = 0; i < sizeof(wall_arr); i++){
+                    if(wall_arr[i].x1 == -1 ){
+                        sscanf(walls, "%d %d %d %d", wall_arr[i].x1, wall_arr[i].y1, wall_arr[i].x2, wall_arr[i].y2 );
+                        break;
+                    }
+                }
+                
+            }
+        }
+    }
+    while (c != 0)
 }
 
 void process(void)
