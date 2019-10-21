@@ -47,7 +47,7 @@ uint8_t door_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 0, 0, 0, 1}, {1,
 uint8_t milk_bitmap[OBJ_SIZE][OBJ_SIZE] = {{1, 1, 1, 1, 1}, {1, 1, 0, 1, 1}, {1, 0, 0, 0, 1}, {1, 1, 0, 1, 1}, {1, 1, 1, 1, 1}};
 
 // Global Vars
-int current_level = 1, cheese, cheese_collected, cheese_time, traps, trap_time, placing_trap, milk_time, placing_milk, milk_placed, super_activated, super_time;
+int current_level = 1, level2_initiated, cheese, cheese_collected, cheese_time, traps, trap_time, placing_trap, milk_time, placing_milk, milk_placed, super_activated, super_time;
 double game_time, pause_start, pause_end, pause_time;
 int cheese_positions[5][2], trap_positions[5][2], door_position[2], milk_position[2];
 bool pause = false;
@@ -161,7 +161,7 @@ void level1_walls()
     wall_4.y2 = 30;
 }
 
-void level2_walls()
+/* void level2_walls()
 {
     wall_1.x1 = 24;
     wall_1.y1 = 15;
@@ -182,7 +182,7 @@ void level2_walls()
     wall_4.y1 = 25;
     wall_4.x2 = 58;
     wall_4.y2 = 30;
-}
+} */
 
 void reset_walls()
 {
@@ -200,6 +200,8 @@ void setup_vars(void)
 {
     if (current_level == 1)
     {
+        level2_initiated = 0;
+
         jerry.score = 0;
         jerry.lives = 5;
         jerry.x = 0;
@@ -221,7 +223,13 @@ void setup_vars(void)
         jerry.fireworks = 20;
         tom.x = LCD_X - 5;
         tom.y = LCD_Y - 9;
-        level2_walls();
+        // Enable USB Serial
+        usb_init();
+        while (!usb_configured())
+        {
+            // Block until USB is ready.
+        }
+        //level2_walls();
     }
 
     jerry.init_x = jerry.x;
@@ -312,13 +320,6 @@ void setup(void)
     // Enable interupts
     sei();
 
-    // Enable USB Serial
-    usb_init();
-    while (!usb_configured())
-    {
-        // Block until USB is ready.
-    }
-
     // Set Initial Var Values
     setup_vars();
 
@@ -347,11 +348,12 @@ void output_state()
     double fraction = fl_minutes - floor(fl_minutes);
     int seconds = 60.0 * fraction;
 
+    send_str("\rGAME INFO\n");
     send_formatted(str_buffer, sizeof(str_buffer), "\r\n\rGame Time: %02d:%02d\n", i_minutes, seconds);
     send_formatted(str_buffer, sizeof(str_buffer), "\rCurrent Level: %d\n", current_level);
     send_formatted(str_buffer, sizeof(str_buffer), "\rLives: %d\n", jerry.lives);
     send_formatted(str_buffer, sizeof(str_buffer), "\rScore: %d\n", jerry.score);
-    send_formatted(str_buffer, sizeof(str_buffer), "\rFireworks on Screen: %d\n", jerry.score >= 3 ? 20-jerry.fireworks : 0);
+    send_formatted(str_buffer, sizeof(str_buffer), "\rFireworks on Screen: %d\n", jerry.score >= 3 ? 20 - jerry.fireworks : 0);
     send_formatted(str_buffer, sizeof(str_buffer), "\rMoustraps on Screen: %d\n", traps);
     send_formatted(str_buffer, sizeof(str_buffer), "\rCheese on Screen: %d\n", cheese);
     send_formatted(str_buffer, sizeof(str_buffer), "\rCheese Collected in Room: %d\n", cheese_collected);
@@ -403,52 +405,6 @@ ISR(TIMER1_OVF_vect)
         {
             switch_states[i] = 0;
         }
-    }
-
-    int16_t c = usb_serial_getchar();
-
-    // Down
-    if (c == 's' && jerry.y + OBJ_SIZE + 1 < LCD_Y && !check_collision(jerry, 0, 1))
-    {
-        jerry.y++;
-    }
-    // Left
-    else if (c == 'a' && jerry.x - 1 > 0 && !check_collision(jerry, -1, 0))
-    {
-        jerry.x--;
-    }
-    // Up
-    else if (c == 'w' && jerry.y - 1 > STATUS_BAR_HEIGHT && !check_collision(jerry, 0, -1))
-    {
-        jerry.y--;
-    } // Right
-    else if (c == 'd' && jerry.x + 1 + OBJ_SIZE < LCD_X && !check_collision(jerry, 1, 0))
-    {
-        jerry.x++;
-    }
-    else if (c == 'i')
-    {
-        output_state();
-    }
-    else if (c == 'p')
-    {
-        paused();
-    }
-    else if (c == 'l')
-    {
-        if (current_level == 1)
-        {
-            current_level = 2;
-            setup_vars();
-        }
-        else
-        {
-            game_over = true;
-        }
-    }
-    else if (c == 'f')
-    {
-        shoot_firework();
     }
 }
 
@@ -872,7 +828,7 @@ void handle_player(void)
         }
     }
 
-    if (round(elapsed_time()) - super_time >= 10)
+    if (game_time - super_time >= 10)
     {
         super_activated = 0;
     }
@@ -1242,6 +1198,165 @@ void paused()
     }
 }
 
+void usb_serial_read_string(char *message)
+{
+    int c = 0;
+    int buffer_count = 0;
+
+    while (c != '\n')
+    {
+        c = usb_serial_getchar();
+        message[buffer_count] = c;
+        buffer_count++;
+    }
+}
+
+void serial_room_setup(char c)
+{
+    char char_buffer[32];
+    if (c == 0)
+    {
+        level2_initiated = 1;
+        send_formatted(char_buffer, sizeof(char_buffer), "EOF");
+    }
+    else
+    {
+        if (c == 'T')
+        {
+            usb_serial_read_string(char_buffer);
+            sscanf(char_buffer, "%lf %lf", &tom.init_x, &tom.init_y);
+            send_formatted(char_buffer, sizeof(char_buffer), "TOM COORDS");
+        }
+
+        if (c == 'J')
+        {
+            usb_serial_read_string(char_buffer);
+            sscanf(char_buffer, "%lf %lf", &jerry.init_x, &jerry.init_y);
+        }
+
+        //things to check here. Variable wall_num should be less than MAX_WALLS
+        if (c == 'W')
+        {
+            char walls[64];
+            usb_serial_read_string(walls);
+            struct wall wall_arr[6] = {wall_1, wall_2, wall_3, wall_4, wall_5, wall_6};
+
+            for (int i = 0; i < sizeof(wall_arr); i++)
+            {
+                if (wall_arr[i].x1 == -1)
+                {
+                    sscanf(walls, "%lf %lf %lf %lf", &wall_arr[i].x1, &wall_arr[i].y1, &wall_arr[i].x2, &wall_arr[i].y2);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void serial_commands(char c)
+{
+    // Down
+    if (c == 's' && jerry.y + OBJ_SIZE + 1 < LCD_Y && !check_collision(jerry, 0, 1))
+    {
+        jerry.y++;
+    }
+    // Left
+    else if (c == 'a' && jerry.x - 1 > 0 && !check_collision(jerry, -1, 0))
+    {
+        jerry.x--;
+    }
+    // Up
+    else if (c == 'w' && jerry.y - 1 > STATUS_BAR_HEIGHT && !check_collision(jerry, 0, -1))
+    {
+        jerry.y--;
+    } // Right
+    else if (c == 'd' && jerry.x + 1 + OBJ_SIZE < LCD_X && !check_collision(jerry, 1, 0))
+    {
+        jerry.x++;
+    }
+    else if (c == 'i')
+    {
+        output_state();
+    }
+    else if (c == 'p')
+    {
+        paused();
+    }
+    else if (c == 'l')
+    {
+        if (current_level == 1)
+        {
+            current_level = 2;
+            setup_vars();
+        }
+        else
+        {
+            game_over = true;
+        }
+    }
+    else if (c == 'f')
+    {
+        shoot_firework();
+    }
+}
+
+void get_usb(void)
+{
+    /*if (usb_serial_available())
+    {
+        int16_t c = usb_serial_getchar();
+
+        if (level2_initiated)
+        {
+            serial_commands(c);
+        }
+        else
+        {
+    serial_room_setup(c);
+    }*/
+    if (usb_serial_available())
+    {
+        int c = 0;
+        //double x1, x2, y1, y2;
+        double tomX, tomY;
+        char char_buffer[100];
+        while ( (c = usb_serial_getchar()) > 0)
+        {
+            if (c == 'T')
+            {
+                usb_serial_read_string(char_buffer);
+                sscanf(char_buffer, "%lf %lf", &tomX, &tomY);
+                tom.init_x = tomX;
+                tom.init_y = tomY;
+                usb_serial_write((uint8_t *) char_buffer, strlen(char_buffer));
+            }
+
+            if (c == 'J')
+            {
+                usb_serial_read_string(char_buffer);
+                sscanf(char_buffer, "%lf %lf", &jerry.init_x, &jerry.init_y);
+            }
+
+            //things to check here. Variable wall_num should be less than MAX_WALLS
+            if (c == 'W')
+            {
+                char walls[64];
+                usb_serial_read_string(walls);
+                struct wall wall_arr[6] = {wall_1, wall_2, wall_3, wall_4, wall_5, wall_6};
+
+                for (int i = 0; i < sizeof(wall_arr); i++)
+                {
+                    if (wall_arr[i].x1 == -1)
+                    {
+                        sscanf(walls, "%lf %lf %lf %lf", &wall_arr[i].x1, &wall_arr[i].y1, &wall_arr[i].x2, &wall_arr[i].y2);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 void process(void)
 {
     clear_screen();
@@ -1249,6 +1364,11 @@ void process(void)
     if (!game_over)
     {
         set_speeds();
+
+        if (current_level == 2)
+        {
+            get_usb();
+        }
 
         if (super_activated)
         {
