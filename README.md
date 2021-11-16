@@ -1,2 +1,2 @@
-# tom-and-jerry-teensy-cab202
- Tom and Jerry style game designed for use on the TeensyPewPew microcontroller.
+# Tom and Jerry on the Teensy
+ Tom and Jerry style game designed for use on the TeensyPewPew microcontroller, as a part of the univeristy unit CAB202.
